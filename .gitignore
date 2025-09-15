@@ -1,0 +1,27 @@
+# Node.js dependencies
+node_modules/
+
+# Rust build artifacts
+target/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# Solana keypairs
+*.json
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor-specific files
+.vscode/
+.idea/
+*.code-workspace
+
+# Other
+*.tmp
+*.bak
