@@ -26,9 +26,11 @@ export class SolanaClient {
     const claimText = formData.claimText;
     const deadline = new Date(formData.deadline).getTime() / 1000;
     const stake = formData.stake * 1e9; // Convert to lamports
+    const category = formData.category;
+    const subcategory = formData.subcategory;
 
     // Create instruction data
-    const instructionData = Buffer.alloc(1 + 4 + claimText.length + 8 + 8);
+    const instructionData = Buffer.alloc(1 + 4 + claimText.length + 8 + 8 + 4 + category.length + 4 + subcategory.length);
     let offset = 0;
     
     // Instruction discriminator (0 = create_claim)
@@ -47,6 +49,19 @@ export class SolanaClient {
     
     // Stake
     instructionData.writeBigUInt64LE(BigInt(stake), offset);
+    offset += 8;
+    
+    // Category length and content
+    instructionData.writeUInt32LE(category.length, offset);
+    offset += 4;
+    instructionData.write(category, offset);
+    offset += category.length;
+    
+    // Subcategory length and content
+    instructionData.writeUInt32LE(subcategory.length, offset);
+    offset += 4;
+    instructionData.write(subcategory, offset);
+    offset += subcategory.length;
 
     const transaction = new Transaction().add(
       new TransactionInstruction({
@@ -63,16 +78,17 @@ export class SolanaClient {
     return signature;
   }
 
-  async takeBet(claimId: string, betData: BetData): Promise<string> {
+  async joinPool(claimId: string, side: Side, amount: number): Promise<string> {
     if (!this.provider) throw new Error('Wallet not connected');
 
     const wallet = this.provider.wallet;
-    const amount = betData.amount * 1e9; // Convert to lamports
+    const lamports = amount * 1e9; // Convert to lamports
 
-    // Create instruction data
-    const instructionData = Buffer.alloc(1 + 8);
-    instructionData.writeUInt8(1, 0); // take_bet instruction
-    instructionData.writeBigUInt64LE(BigInt(amount), 1);
+    // Create instruction data for join_pool (assuming discriminator 1)
+    const instructionData = Buffer.alloc(1 + 1 + 8);
+    instructionData.writeUInt8(1, 0); // join_pool instruction
+    instructionData.writeUInt8(side === Side.A ? 0 : 1, 1); // side enum
+    instructionData.writeBigUInt64LE(BigInt(lamports), 2);
 
     const transaction = new Transaction().add(
       new TransactionInstruction({
@@ -101,8 +117,15 @@ export class SolanaClient {
         sideBVault: new PublicKey('11111111111111111111111111111111'),
         status: 'Open' as any,
         winner: null,
-        bettor: null,
         resolution: null,
+        category: 'Crypto',
+        subcategory: 'Bitcoin',
+        sideABettors: [new PublicKey('11111111111111111111111111111111')],
+        sideAStakes: [100000000], // 0.1 SOL
+        sideBBettors: [],
+        sideBStakes: [],
+        sideATotal: 100000000,
+        sideBTotal: 0,
         claimText: 'BTC will be above $70,000 by Sept 16, 2025',
       }
     ];

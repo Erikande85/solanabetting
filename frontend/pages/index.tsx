@@ -38,7 +38,7 @@ export default function Home() {
 
   const handleBet = async (claimId: string, side: Side, amount: number) => {
     try {
-      const signature = await solanaClient.takeBet(claimId, { side, amount });
+      const signature = await solanaClient.joinPool(claimId, side, amount);
       toast.success(`Bet placed! Signature: ${signature.slice(0, 8)}...`);
       loadClaims(); // Refresh claims
     } catch (error: any) {

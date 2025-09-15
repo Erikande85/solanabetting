@@ -9,8 +9,15 @@ export interface ClaimAccount {
   sideBVault: PublicKey;
   status: ClaimStatus;
   winner: Side | null;
-  bettor: PublicKey | null;
   resolution: ResolutionData | null;
+  category: string;
+  subcategory: string;
+  sideABettors: PublicKey[];
+  sideAStakes: number[];
+  sideBBettors: PublicKey[];
+  sideBStakes: number[];
+  sideATotal: number;
+  sideBTotal: number;
   claimText: string;
 }
 
@@ -45,6 +52,8 @@ export interface ClaimFormData {
   deadline: string;
   stake: number;
   mint: 'SOL' | 'USDC';
+  category: string;
+  subcategory: string;
 }
 
 export interface BetData {

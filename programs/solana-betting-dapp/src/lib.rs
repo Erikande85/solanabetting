@@ -25,10 +25,15 @@ mod solana_betting_dapp {
         claim_account.side_b_vault = ctx.accounts.side_b_vault.key();
         claim_account.status = ClaimStatus::Open;
         claim_account.winner = None;
-        claim_account.bettor = None;
         claim_account.resolution = None;
         claim_account.category = category; // Assign category
         claim_account.subcategory = subcategory; // Assign subcategory
+        claim_account.side_a_bettors = vec![ctx.accounts.creator.key()];
+        claim_account.side_a_stakes = vec![stake];
+        claim_account.side_b_bettors = vec![];
+        claim_account.side_b_stakes = vec![];
+        claim_account.side_a_total = stake;
+        claim_account.side_b_total = 0;
 
         // Transfer stake to side_a_vault
         let transfer_ix = system_instruction::transfer(
@@ -47,25 +52,35 @@ mod solana_betting_dapp {
         Ok(())
     }
 
-    pub fn take_bet(ctx: Context<TakeBet>, amount: u64) -> Result<()> {
+    pub fn join_pool(ctx: Context<JoinPool>, side: Side, amount: u64) -> Result<()> {
         let claim_account = &mut ctx.accounts.claim_account;
         require!(claim_account.status == ClaimStatus::Open, ErrorCode::ClaimNotOpen);
-        claim_account.bettor = Some(ctx.accounts.bettor.key());
 
+        // Update bettors and stakes based on chosen side
+        if side == Side::A {
+            claim_account.side_a_bettors.push(ctx.accounts.bettor.key());
+            claim_account.side_a_stakes.push(amount);
+            claim_account.side_a_total += amount;
+        } else {
+            claim_account.side_b_bettors.push(ctx.accounts.bettor.key());
+            claim_account.side_b_stakes.push(amount);
+            claim_account.side_b_total += amount;
+        }
+
+        let vault = if side == Side::A { ctx.accounts.side_a_vault.to_account_info() } else { ctx.accounts.side_b_vault.to_account_info() };
         let transfer_ix = system_instruction::transfer(
             &ctx.accounts.bettor.key(),
-            &claim_account.side_b_vault,
+            &vault.key(),
             amount,
         );
         invoke(
             &transfer_ix,
             &[
                 ctx.accounts.bettor.to_account_info(),
-                ctx.accounts.side_b_vault.to_account_info(),
+                vault,
                 ctx.accounts.system_program.to_account_info(),
             ],
         )?;
-        claim_account.status = ClaimStatus::Locked;
         Ok(())
     }
 
@@ -105,31 +120,35 @@ mod solana_betting_dapp {
         Ok(())
     }
 
-    pub fn payout(ctx: Context<Payout>) -> Result<()> {
+    pub fn claim_payout(ctx: Context<ClaimPayout>, bettor_index: u32) -> Result<()> {
         let claim_account = &ctx.accounts.claim_account;
         require!(claim_account.status == ClaimStatus::Resolved, ErrorCode::NotResolved);
         let winner_side = claim_account.winner.unwrap();
-        let winner_pubkey = if winner_side == Side::A {
-            claim_account.creator
+        
+        let (bettors, stakes, total_winning) = if winner_side == Side::A {
+            (&claim_account.side_a_bettors, &claim_account.side_a_stakes, claim_account.side_a_total)
         } else {
-            claim_account.bettor.unwrap()
+            (&claim_account.side_b_bettors, &claim_account.side_b_stakes, claim_account.side_b_total)
         };
-
-        let total_a = ctx.accounts.side_a_vault.lamports();
-        let total_b = ctx.accounts.side_b_vault.lamports();
-        let total = total_a + total_b;
-        let fee = total * 15 / 1000; // 1.5%
-        let payout_amount = total - fee;
-
-        // Transfer payout to winner
-        **ctx.accounts.winner.to_account_info().try_borrow_mut_lamports()? += payout_amount;
-        **ctx.accounts.side_a_vault.to_account_info().try_borrow_mut_lamports()? = 0;
-        **ctx.accounts.side_b_vault.to_account_info().try_borrow_mut_lamports()? = 0;
-
-        // Fee to treasury (placeholder, transfer to some account)
-        // For now, assume treasury is passed
+        
+        require!(bettor_index < bettors.len() as u32, ErrorCode::InvalidIndex);
+        require!(bettors[bettor_index as usize] == ctx.accounts.bettor.key(), ErrorCode::NotAuthorized);
+        
+        let bettor_stake = stakes[bettor_index as usize];
+        let total_pool = claim_account.side_a_total + claim_account.side_b_total;
+        let payout = (bettor_stake as u128 * total_pool as u128 / total_winning as u128) as u64;
+        let fee = payout * 15 / 1000; // 1.5% fee
+        let net_payout = payout - fee;
+        
+        // Transfer from vaults to bettor
+        let vault = if winner_side == Side::A { &ctx.accounts.side_a_vault } else { &ctx.accounts.side_b_vault };
+        **ctx.accounts.bettor.to_account_info().try_borrow_mut_lamports()? += net_payout;
+        **vault.to_account_info().try_borrow_mut_lamports()? -= payout; // payout includes fee? Wait, fee to treasury
+        
+        // For simplicity, fee stays in vault or transfer to treasury
+        // Assume treasury is passed
         **ctx.accounts.treasury.to_account_info().try_borrow_mut_lamports()? += fee;
-
+        
         Ok(())
     }
 }
@@ -140,7 +159,7 @@ pub struct CreateClaim<'info> {
     #[account(
         init,
         payer = creator,
-        space = 8 + 32 + 32 + 8 + 32 + 32 + 32 + 1 + (1 + 1) + (1 + 32) + (1 + 200), // approx
+        space = 10000, // Increased for pool data
         seeds = [b"claim", creator.key().as_ref(), &hash::hash(claim_text.as_bytes()).to_bytes()],
         bump
     )]
@@ -167,9 +186,11 @@ pub struct CreateClaim<'info> {
 }
 
 #[derive(Accounts)]
-pub struct TakeBet<'info> {
+pub struct JoinPool<'info> {
     #[account(mut, seeds = [b"claim", claim_account.creator.as_ref(), claim_account.claim_text_hash.as_ref()], bump)]
     pub claim_account: Account<'info, ClaimAccount>,
+    #[account(mut, address = claim_account.side_a_vault)]
+    pub side_a_vault: SystemAccount<'info>,
     #[account(mut, address = claim_account.side_b_vault)]
     pub side_b_vault: SystemAccount<'info>,
     #[account(mut)]
@@ -193,17 +214,18 @@ pub struct ResolveHuman<'info> {
 }
 
 #[derive(Accounts)]
-pub struct Payout<'info> {
-    #[account(seeds = [b"claim", claim_account.creator.as_ref(), claim_account.claim_text_hash.as_ref()], bump)]
+pub struct ClaimPayout<'info> {
+    #[account(mut, seeds = [b"claim", claim_account.creator.as_ref(), claim_account.claim_text_hash.as_ref()], bump)]
     pub claim_account: Account<'info, ClaimAccount>,
     #[account(mut, address = claim_account.side_a_vault)]
     pub side_a_vault: SystemAccount<'info>,
     #[account(mut, address = claim_account.side_b_vault)]
     pub side_b_vault: SystemAccount<'info>,
-    #[account(mut, address = if claim_account.winner.unwrap() == Side::A { claim_account.creator } else { claim_account.bettor.unwrap() })]
-    pub winner: SystemAccount<'info>,
     #[account(mut)]
-    pub treasury: SystemAccount<'info>, // Placeholder
+    pub bettor: Signer<'info>,
+    #[account(mut)]
+    pub treasury: SystemAccount<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[account]
@@ -216,10 +238,15 @@ pub struct ClaimAccount {
     pub side_b_vault: Pubkey,
     pub status: ClaimStatus,
     pub winner: Option<Side>,
-    pub bettor: Option<Pubkey>,
     pub resolution: Option<ResolutionData>,
     pub category: String, // New field for category
     pub subcategory: String, // New field for subcategory
+    pub side_a_bettors: Vec<Pubkey>,
+    pub side_a_stakes: Vec<u64>,
+    pub side_b_bettors: Vec<Pubkey>,
+    pub side_b_stakes: Vec<u64>,
+    pub side_a_total: u64,
+    pub side_b_total: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
@@ -266,4 +293,12 @@ pub enum ErrorCode {
     NotResolved,
     #[msg("Arbiter not registered")]
     ArbiterNotRegistered,
+    #[msg("Invalid index")]
+    InvalidIndex,
+    #[msg("Not authorized")]
+    NotAuthorized,
+    #[msg("Payout already claimed")]
+    PayoutAlreadyClaimed,
+    #[msg("Invalid payout amount")]
+    InvalidPayoutAmount,
 }

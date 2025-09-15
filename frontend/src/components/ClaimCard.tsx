@@ -58,6 +58,17 @@ export default function ClaimCard({ claim, onBet }: ClaimCardProps) {
     setShowBetModal(false);
   };
 
+  const calculateOdds = (sideTotal: number, oppositeTotal: number) => {
+    const total = sideTotal + oppositeTotal;
+    if (total === 0) return 'N/A';
+    return (total / sideTotal).toFixed(2);
+  };
+
+  const sideATotal = claim.sideATotal / 1e9; // Convert lamports to SOL
+  const sideBTotal = claim.sideBTotal / 1e9;
+  const oddsA = calculateOdds(claim.sideATotal, claim.sideBTotal);
+  const oddsB = calculateOdds(claim.sideBTotal, claim.sideATotal);
+
   return (
     <>
       <div className="card hover:solana-glow">
@@ -86,7 +97,9 @@ export default function ClaimCard({ claim, onBet }: ClaimCardProps) {
           <div className="grid grid-cols-2 gap-4">
             <div className="text-center">
               <div className="text-xs text-vs-gray mb-1">Side A (For)</div>
-              <div className="text-lg font-bold text-solana">0.1 SOL</div>
+              <div className="text-lg font-bold text-solana">{sideATotal.toFixed(2)} SOL</div>
+              <div className="text-xs text-vs-gray">Odds: {oddsA}</div>
+              <div className="text-xs text-vs-gray">Bettors: {claim.sideABettors.length}</div>
               {canBet() && (
                 <button
                   onClick={() => handleBetClick(Side.A)}
@@ -98,7 +111,9 @@ export default function ClaimCard({ claim, onBet }: ClaimCardProps) {
             </div>
             <div className="text-center">
               <div className="text-xs text-vs-gray mb-1">Side B (Against)</div>
-              <div className="text-lg font-bold text-vs-red">0.0 SOL</div>
+              <div className="text-lg font-bold text-vs-red">{sideBTotal.toFixed(2)} SOL</div>
+              <div className="text-xs text-vs-gray">Odds: {oddsB}</div>
+              <div className="text-xs text-vs-gray">Bettors: {claim.sideBBettors.length}</div>
               {canBet() && (
                 <button
                   onClick={() => handleBetClick(Side.B)}

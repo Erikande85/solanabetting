@@ -16,6 +16,8 @@ export default function ClaimForm({ onSubmit }: ClaimFormProps) {
     deadline: '',
     stake: 0.1,
     mint: 'SOL',
+    category: '',
+    subcategory: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clarityScore, setClarityScore] = useState<number | null>(null);
@@ -84,6 +86,8 @@ export default function ClaimForm({ onSubmit }: ClaimFormProps) {
         deadline: '',
         stake: 0.1,
         mint: 'SOL',
+        category: '',
+        subcategory: '',
       });
       setClarityScore(null);
       
@@ -171,6 +175,34 @@ export default function ClaimForm({ onSubmit }: ClaimFormProps) {
               <option value="SOL">SOL</option>
               <option value="USDC">USDC</option>
             </select>
+          </div>
+        </div>
+
+        {/* Category and Subcategory */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-vs-white mb-2">
+              Category
+            </label>
+            <input
+              type="text"
+              className="input-field w-full"
+              placeholder="e.g., Crypto"
+              value={formData.category}
+              onChange={(e) => handleInputChange('category', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-vs-white mb-2">
+              Subcategory
+            </label>
+            <input
+              type="text"
+              className="input-field w-full"
+              placeholder="e.g., Bitcoin"
+              value={formData.subcategory}
+              onChange={(e) => handleInputChange('subcategory', e.target.value)}
+            />
           </div>
         </div>
 
