@@ -1,0 +1,17 @@
+[package]
+name = "solana-betting-dapp"
+version = "0.1.0"
+description = "Solana betting dApp program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "solana_betting_dapp"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.29.0"
