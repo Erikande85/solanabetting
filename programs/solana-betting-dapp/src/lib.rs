@@ -32,6 +32,8 @@ mod solana_betting_dapp {
         claim_account.side_a_stakes = vec![stake];
         claim_account.side_b_bettors = vec![];
         claim_account.side_b_stakes = vec![];
+        claim_account.side_a_odds = vec![1000]; // Creator gets 1:1 odds initially
+        claim_account.side_b_odds = vec![];
         claim_account.side_a_total = stake;
         claim_account.side_b_total = 0;
 
@@ -57,13 +59,22 @@ mod solana_betting_dapp {
         require!(claim_account.status == ClaimStatus::Open, ErrorCode::ClaimNotOpen);
 
         // Update bettors and stakes based on chosen side
+        let current_total = claim_account.side_a_total + claim_account.side_b_total;
+        let odds = if side == Side::A {
+            if claim_account.side_a_total == 0 { 1000 } else { (current_total * 1000) / claim_account.side_a_total }
+        } else {
+            if claim_account.side_b_total == 0 { 1000 } else { (current_total * 1000) / claim_account.side_b_total }
+        };
+
         if side == Side::A {
             claim_account.side_a_bettors.push(ctx.accounts.bettor.key());
             claim_account.side_a_stakes.push(amount);
+            claim_account.side_a_odds.push(odds);
             claim_account.side_a_total += amount;
         } else {
             claim_account.side_b_bettors.push(ctx.accounts.bettor.key());
             claim_account.side_b_stakes.push(amount);
+            claim_account.side_b_odds.push(odds);
             claim_account.side_b_total += amount;
         }
 
@@ -125,19 +136,19 @@ mod solana_betting_dapp {
         require!(claim_account.status == ClaimStatus::Resolved, ErrorCode::NotResolved);
         let winner_side = claim_account.winner.unwrap();
         
-        let (bettors, stakes, total_winning) = if winner_side == Side::A {
-            (&claim_account.side_a_bettors, &claim_account.side_a_stakes, claim_account.side_a_total)
+        let (bettors, stakes, odds) = if winner_side == Side::A {
+            (&claim_account.side_a_bettors, &claim_account.side_a_stakes, &claim_account.side_a_odds)
         } else {
-            (&claim_account.side_b_bettors, &claim_account.side_b_stakes, claim_account.side_b_total)
+            (&claim_account.side_b_bettors, &claim_account.side_b_stakes, &claim_account.side_b_odds)
         };
         
         require!(bettor_index < bettors.len() as u32, ErrorCode::InvalidIndex);
         require!(bettors[bettor_index as usize] == ctx.accounts.bettor.key(), ErrorCode::NotAuthorized);
         
         let bettor_stake = stakes[bettor_index as usize];
-        let total_pool = claim_account.side_a_total + claim_account.side_b_total;
-        let payout = (bettor_stake as u128 * total_pool as u128 / total_winning as u128) as u64;
-        let fee = payout * 15 / 1000; // 1.5% fee
+        let locked_odds = odds[bettor_index as usize];
+        let payout = (bettor_stake as u128 * locked_odds as u128) / 1000; // Odds are *1000, so divide back
+        let fee = (payout * 15) / 1000; // 1.5% fee
         let net_payout = payout - fee;
         
         // Transfer from vaults to bettor
@@ -245,6 +256,8 @@ pub struct ClaimAccount {
     pub side_a_stakes: Vec<u64>,
     pub side_b_bettors: Vec<Pubkey>,
     pub side_b_stakes: Vec<u64>,
+    pub side_a_odds: Vec<u64>, // Odds as (total / side_a_total) * 1000 for precision
+    pub side_b_odds: Vec<u64>,
     pub side_a_total: u64,
     pub side_b_total: u64,
 }
